@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+
+#
+# This plugin is designed as a nagios compatible check plugin to use with
+# Icinga 2 and others
+#
+
+import argparse
+import sys
+from datetime import datetime, timedelta
+from urllib.parse import urljoin
+
+import requests
+
+proxies = {
+  "http": None,
+  "https": None,
+}
+
+class PrometheusAPI:
+    def __init__(self, endpoint='http://127.0.0.1:9090/'):
+        """
+
+        :param endpoint: address of
+        """
+        self.endpoint = endpoint
+
+    def _to_timestamp(self, input, base=None):
+        """
+        Convert string input to UNIX timestamp for Prometheus
+
+        :param input:
+        :param base:
+        :return:
+        """
+        if type(input) == datetime:
+            return input.timestamp()
+        if input == 'now':
+            return datetime.utcnow().timestamp()
+        if type(input) in [int, float]:
+            if input > 0:
+                return input
+            if input == 0:      # return now
+                return datetime.utcnow().timestamp()
+            if input < 0:
+                base = self._to_timestamp(base)
+                return base + input
+        assert type(input) == float
+
+    def query(self, query='prometheus_build_info'):
+        return self._get(
+            uri='/api/v1/query',
+            params=dict(
+                query=query
+            )
+        )
+    
+    def scalar(self, query):
+        data = self.query(query)
+        return(float(data['data']['result'][0]['value'][1]))
+
+    def vector(self, query):
+        data = self.query(query)
+        retv = []
+        for item in data['data']['result']:
+            key = item['metric']
+            val = item['value']
+            retv.append( (key, float(val[1])))
+        return retv
+
+    def _get(self, uri, params, method='GET'):
+        url = urljoin(self.endpoint, uri)
+        assert method == 'GET'
+        result = requests.get(
+            url=url,
+            params=params,
+            proxies=proxies,
+        )
+        return result.json()
+
+prom = PrometheusAPI()
+
+def main():
+    parser = argparse.ArgumentParser('Check CPU')
+    parser.add_argument('--instance', required=True)
+    parser.add_argument('--windows', default=1, type=int)
+    parser.add_argument('--interval', default="5m", type=str)
+    parser.add_argument('--warning-percentage', type=int)
+    parser.add_argument('--critical-percentage', type=int)
+    args = parser.parse_args()
+
+    if args.windows:
+        is_wmi = 0
+        instance = args.instance
+        check_query = 'avg(rate(wmi_cpu_time_total{instance="%s",mode="idle"}[%s]))' % (instance, args.interval)
+        perfdata_query = 'avg by (mode) (rate(wmi_cpu_time_total{instance="%s"}[%s]))' % (instance, args.interval)
+    else:
+        is_wmi = 0
+        instance = args.instance
+        check_query = 'avg(rate(node_cpu{instance="%s",mode="idle"}[%s]))' % (instance, args.interval)
+        perfdata_query = 'avg by (mode) (rate(node_cpu{instance="%s"}[%s]))' % (instance, args.interval)
+	
+    cpu_usage = 100 - (prom.scalar(check_query) * 100)
+    #
+    if args.critical_percentage and cpu_usage > args.critical_percentage:
+        status, message = 2, "CRITICAL - "
+    elif args.warning_percentage and cpu_usage > args.warning_percentage:
+        status, message = 1, "WARNING - "
+    else:
+        status, message = 0, ""
+
+    message = message + "CPU usage: {:.1f}%".format(cpu_usage)
+    print(message, end='|')
+		
+    perfdata = prom.vector(perfdata_query)
+    perfdata_dict = {}
+    for k,v in perfdata:
+         perfdata_dict[k['mode']] = 100.*v
+    for k in sorted(perfdata_dict.keys(), reverse=True):
+         print('{}={:3f};;0;100'.format(k, perfdata_dict[k]), end=' ')
+    
+    raise SystemExit(status)
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as e:
+        print('Error - %s' % str(e))
+        sys.exit(3)
+    finally:
+        pass

@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+
+#
+# This plugin is designed as a nagios compatible check plugin to use with
+# Icinga 2 and others
+#
+
+import argparse
+import sys
+from datetime import datetime, timedelta
+from urllib.parse import urljoin
+
+import requests
+
+proxies = {
+  "http": None,
+  "https": None,
+}
+
+def humanize_bytes(bytes, precision=1):
+    abbrevs = (
+        (1<<50, 'PB'),
+        (1<<40, 'TB'),
+        (1<<30, 'GB'),
+        (1<<20, 'MB'),
+        (1<<10, 'kB'),
+        (1, 'bytes')
+    )
+    if bytes == 1:
+        return '1 byte'
+    for factor, suffix in abbrevs:
+        if bytes >= factor:
+            break
+    return '%.*f %s' % (precision, bytes / factor, suffix)
+
+class PrometheusAPI:
+    def __init__(self, endpoint='http://127.0.0.1:9090/'):
+        """
+
+        :param endpoint: address of
+        """
+        self.endpoint = endpoint
+
+    def _to_timestamp(self, input, base=None):
+        """
+        Convert string input to UNIX timestamp for Prometheus
+
+        :param input:
+        :param base:
+        :return:
+        """
+        if type(input) == datetime:
+            return input.timestamp()
+        if input == 'now':
+            return datetime.utcnow().timestamp()
+        if type(input) in [int, float]:
+            if input > 0:
+                return input
+            if input == 0:      # return now
+                return datetime.utcnow().timestamp()
+            if input < 0:
+                base = self._to_timestamp(base)
+                return base + input
+        assert type(input) == float
+
+    def query(self, query='prometheus_build_info'):
+        return self._get(
+            uri='/api/v1/query',
+            params=dict(
+                query=query,
+            )
+        )
+    
+    def scalar(self, query):
+        data = self.query(query)
+        return(int(data['data']['result'][0]['value'][1]))
+
+    def _get(self, uri, params, method='GET'):
+        url = urljoin(self.endpoint, uri)
+        assert method == 'GET'
+        result = requests.get(
+            url=url,
+            params=params,
+            proxies=proxies,
+        )
+        return result.json()
+
+prom = PrometheusAPI()
+
+def main():
+    parser = argparse.ArgumentParser('Check disk')
+    parser.add_argument('--instance', required=True)
+    parser.add_argument('--disk', required=True, default='/')
+    parser.add_argument('--critical-percentage-free', type=int)
+    parser.add_argument('--critical-bytes-free', type=int)
+    parser.add_argument('--warning-percentage-free', type=int)
+    parser.add_argument('--warning-bytes-free', type=int)
+    args = parser.parse_args()
+
+    if args.disk.startswith('/'):
+        is_wmi = 0
+        query_size = 'node_filesystem_size{instance="%s",mountpoint="%s"}' % (args.instance, args.disk)
+        query_free = 'node_filesystem_free{instance="%s",mountpoint="%s"}' % (args.instance, args.disk)
+    else:
+        is_wmi = 1
+        query_size = 'wmi_logical_disk_size_bytes{instance="%s",volume="%s"}' % (args.instance, args.disk)
+        query_free = 'wmi_logical_disk_free_bytes{instance="%s",volume="%s"}' % (args.instance, args.disk)
+
+    disk_free = prom.scalar(query_free)
+    disk_size = prom.scalar(query_size)
+    percent_free = int(disk_free / disk_size * 100)
+
+    retv,state  = 0, ''
+    
+    if args.warning_bytes_free:
+        if disk_free < args.warning_bytes_free:
+            retv,state = 1, 'WARNING - '
+    if args.warning_percentage_free:
+        if percent_free < args.warning_percentage_free:
+            retv,state = 1, 'WARNING - '
+    if args.critical_bytes_free:
+        if disk_free < args.critical_bytes_free:
+            retv,state = 2, 'CRITICAL - '
+    if args.critical_percentage_free:
+        if percent_free < args.critical_percentage_free:
+            retv,state = 2, 'CRITICAL - '
+
+    perfdata = '{}={}B;;;0;{}'.format(args.disk, (disk_size-disk_free), disk_size) 
+    print('{}{} free of {} ({}%)|{}'.format(
+            state, humanize_bytes(disk_free), humanize_bytes(disk_size), 
+            percent_free, perfdata) )
+    raise SystemExit(retv)
+    
+
+    if perfdata:
+        print('%s - %s | %s' % (status, msg, perfdata))
+    else:
+        print('%s - %s' % (status, msg))
+
+    return retval
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as e:
+        print('Error - %s' % str(e))
+        sys.exit(3)
