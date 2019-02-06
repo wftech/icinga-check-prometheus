@@ -111,21 +111,26 @@ def main():
     percent_free = int(disk_free / disk_size * 100)
 
     retv,state  = 0, ''
-    
+    perf_warn, perf_crit = '', ''
+
     if args.warning_bytes_free:
+        perf_warn = args.warning_bytes_free
         if disk_free < args.warning_bytes_free:
             retv,state = 1, 'WARNING - '
     if args.warning_percentage_free:
+        perf_warn = int(disk_size * args.warning_percentage_free / 100)
         if percent_free < args.warning_percentage_free:
             retv,state = 1, 'WARNING - '
     if args.critical_bytes_free:
+        perf_crit = args.critical_bytes_free
         if disk_free < args.critical_bytes_free:
             retv,state = 2, 'CRITICAL - '
     if args.critical_percentage_free:
+        perf_crit = int(disk_size * args.critical_percentage_free / 100)
         if percent_free < args.critical_percentage_free:
             retv,state = 2, 'CRITICAL - '
 
-    perfdata = '{}={}B;;;0;{}'.format(args.disk, (disk_size-disk_free), disk_size) 
+    perfdata = '{}={}B;{};{};0;{}'.format(args.disk, (disk_size-disk_free), perf_warn, perf_crit, disk_size) 
     print('{}{} free of {} ({}%)|{}'.format(
             state, humanize_bytes(disk_free), humanize_bytes(disk_size), 
             percent_free, perfdata) )
