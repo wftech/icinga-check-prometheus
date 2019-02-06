@@ -87,50 +87,48 @@ class PrometheusAPI:
 
 prom = PrometheusAPI()
 
+def escape(s):
+    return s.replace('\\', '\\\\')
+
 def main():
     parser = argparse.ArgumentParser('Check disk')
     parser.add_argument('--instance', required=True)
-    parser.add_argument('--disk', required=True, default='/')
+    parser.add_argument('--folder', required=True, default='/')
     parser.add_argument('--critical-percentage-free', type=int)
     parser.add_argument('--critical-bytes-free', type=int)
     parser.add_argument('--warning-percentage-free', type=int)
     parser.add_argument('--warning-bytes-free', type=int)
     args = parser.parse_args()
 
-    if args.disk.startswith('/'):
-        is_wmi = 0
-        query_size = 'node_filesystem_size{instance="%s",mountpoint="%s"}' % (args.instance, args.disk)
-        query_free = 'node_filesystem_free{instance="%s",mountpoint="%s"}' % (args.instance, args.disk)
-    else:
-        is_wmi = 1
-        query_size = 'wmi_logical_disk_size_bytes{instance="%s",volume="%s"}' % (args.instance, args.disk)
-        query_free = 'wmi_logical_disk_free_bytes{instance="%s",volume="%s"}' % (args.instance, args.disk)
+    query_size = 'fs_quota_size{instance="%s",folder="%s"}' % (args.instance, escape(args.folder))
+    query_used = 'fs_quota_usage{instance="%s",folder="%s"}' % (args.instance, escape(args.folder))
 
-    disk_free = prom.scalar(query_free)
     disk_size = prom.scalar(query_size)
+    disk_free = disk_size - prom.scalar(query_used)
     percent_free = int(disk_free / disk_size * 100)
 
     retv,state  = 0, ''
-    perf_warn, perf_crit = '', ''
+
+    perf_warn,perf_crit = '',''
 
     if args.warning_bytes_free:
-        perf_warn = disk_size -  args.warning_bytes_free
+        perf_warn = args.warning_bytes_free
         if disk_free < args.warning_bytes_free:
             retv,state = 1, 'WARNING - '
     if args.warning_percentage_free:
-        perf_warn = disk_size - int(disk_size * args.warning_percentage_free / 100)
+        perf_warn = int(disk_size * args.warning_percentage_free / 100)
         if percent_free < args.warning_percentage_free:
             retv,state = 1, 'WARNING - '
     if args.critical_bytes_free:
-        perf_crit = disk_size - args.critical_bytes_free
+        perf_crit = args.critical_bytes_free
         if disk_free < args.critical_bytes_free:
             retv,state = 2, 'CRITICAL - '
     if args.critical_percentage_free:
-        perf_crit = disk_size - int(disk_size * args.critical_percentage_free / 100)
+        perf_crit = int(disk_size * args.critical_percentage_free / 100)
         if percent_free < args.critical_percentage_free:
             retv,state = 2, 'CRITICAL - '
 
-    perfdata = '{}={}B;{};{};0;{}'.format(args.disk, (disk_size-disk_free), perf_warn, perf_crit, disk_size) 
+    perfdata = '{}={}B;{};{};0;{}'.format(args.folder, (disk_size-disk_free), perf_warn, perf_crit, disk_size) 
     print('{}{} free of {} ({}%)|{}'.format(
             state, humanize_bytes(disk_free), humanize_bytes(disk_size), 
             percent_free, perfdata) )
@@ -145,6 +143,7 @@ def main():
     return retval
 
 if __name__ == '__main__':
+    main()
     try:
         sys.exit(main())
     except Exception as e:
