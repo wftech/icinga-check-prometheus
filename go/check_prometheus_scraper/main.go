@@ -47,7 +47,7 @@ type PrometheusApiResponse struct {
 	} `json:"data"`
 }
 
-func (r PrometheusRequest) PrepareQuery(query int) {
+func (r *PrometheusRequest) PrepareQuery(query int) {
 	if r.Verbose {
 		fmt.Printf(">> Preparing qeury %d\n", query)
 	}
@@ -58,19 +58,19 @@ func (r PrometheusRequest) PrepareQuery(query int) {
 		if len(r.Tags) == 0 {
 			q["query"] = fmt.Sprintf(`up{instance="%s"}`, r.Instance)
 		} else {
-			q["query"] = fmt.Sprintf(`up{instance="%s","%s"}`, r.Instance, r.Tags)
+			q["query"] = fmt.Sprintf(`up{instance="%s",%s}`, r.Instance, r.Tags)
 		}
 	case QueryDuration:
 		if len(r.Tags) == 0 {
 			q["query"] = fmt.Sprintf(`scrape_duration_seconds{instance="%s"}`, r.Instance)
 		} else {
-			q["query"] = fmt.Sprintf(`scrape_duration_seconds{instance="%s","%s"}`, r.Instance, r.Tags)
+			q["query"] = fmt.Sprintf(`scrape_duration_seconds{instance="%s",%s}`, r.Instance, r.Tags)
 		}
 	case QuerySamples:
 		if len(r.Tags) == 0 {
 			q["query"] = fmt.Sprintf(`scrape_samples_scraped{instance="%s"}`, r.Instance)
 		} else {
-			q["query"] = fmt.Sprintf(`scrape_samples_scraped{instance="%s","%s"}`, r.Instance, r.Tags)
+			q["query"] = fmt.Sprintf(`scrape_samples_scraped{instance="%s",%s}`, r.Instance, r.Tags)
 		}
 	}
 
@@ -82,7 +82,7 @@ func (r PrometheusRequest) PrepareQuery(query int) {
 	r.Query = q
 }
 
-func (r PrometheusRequest) Call() (int, string) {
+func (r *PrometheusRequest) Call() (int, string) {
 	req, err := http.NewRequest("GET", r.URL, nil)
 	if err != nil {
 		return ExitCritical, fmt.Sprintf("CRITICAL - API request error: %s", err.Error())
@@ -145,7 +145,7 @@ func main() {
 	msg := ""
 	status := ExitOK
 
-	r := PrometheusRequest{
+	r := &PrometheusRequest{
 		URL:             "http://127.0.0.1:9090/api/v1/query",
 		Instance:        *instance,
 		Tags:            *tags,
@@ -200,6 +200,9 @@ func main() {
 	}
 
 	// Final message
+	if len(msg) == 0 {
+		msg = "OK - "
+	}
 	msg = msg + fmt.Sprintf("scraping took %.1fs", msgDurationFloat)
 	msg = msg + fmt.Sprintf("|duration=%fs;%.0f;%.0f;0;", msgDurationFloat, r.TimeoutWarning, r.TimeoutCritical)
 	msg = msg + fmt.Sprintf(" samples=%s", msgSamples)
