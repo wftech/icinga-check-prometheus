@@ -137,9 +137,9 @@ func (r *PrometheusRequest) Call() (int, string) {
 func main() {
 	instance := flag.String("instance", "default", "Instance name")
 	tags := flag.String("tags", "", "Tags")
-	timeoutWarning := flag.Float64("timeout-warning", 5.0, "Timeout warning")
+	timeoutWarning := flag.Float64("warning-timeout", 5.0, "Timeout warning")
+	timeoutCritical := flag.Float64("critical-timeout", 30.0, "Timeout critical")
 	verbose := flag.Bool("verbose", false, "Verbose")
-	timeoutCritical := flag.Float64("timeout-critical", 30.0, "Timeout critical")
 	flag.Parse()
 
 	msg := ""
