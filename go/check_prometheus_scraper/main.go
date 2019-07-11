@@ -28,6 +28,7 @@ type PrometheusRequest struct {
 	Query           map[string]string
 	TimeoutWarning  float64
 	TimeoutCritical float64
+	Verbose         bool
 }
 
 type PrometheusApiResponse struct {
@@ -47,6 +48,10 @@ type PrometheusApiResponse struct {
 }
 
 func (r PrometheusRequest) PrepareQuery(query int) {
+	if r.Verbose {
+		fmt.Printf(">> Preparing qeury %d\n", query)
+	}
+
 	q := make(map[string]string)
 	switch query {
 	case QueryCheck:
@@ -68,6 +73,12 @@ func (r PrometheusRequest) PrepareQuery(query int) {
 			q["query"] = fmt.Sprintf(`scrape_samples_scraped{instance="%s","%s"}`, r.Instance, r.Tags)
 		}
 	}
+
+	if r.Verbose {
+		fmt.Println(">> Prepared query")
+		fmt.Printf("%v\n", q)
+	}
+
 	r.Query = q
 }
 
@@ -83,6 +94,13 @@ func (r PrometheusRequest) Call() (int, string) {
 			q.Add(k, v)
 		}
 		req.URL.RawQuery = q.Encode()
+	}
+
+	if r.Verbose {
+		fmt.Println(">>> PrometheusRequest")
+		fmt.Printf("%+v\n", r)
+		fmt.Println(">>> API request")
+		fmt.Printf("URL: %+v\n", req.URL)
 	}
 
 	client := &http.Client{}
@@ -120,6 +138,7 @@ func main() {
 	instance := flag.String("instance", "default", "Instance name")
 	tags := flag.String("tags", "", "Tags")
 	timeoutWarning := flag.Float64("timeout-warning", 5.0, "Timeout warning")
+	verbose := flag.Bool("verbose", false, "Verbose")
 	timeoutCritical := flag.Float64("timeout-critical", 30.0, "Timeout critical")
 	flag.Parse()
 
@@ -132,6 +151,7 @@ func main() {
 		Tags:            *tags,
 		TimeoutWarning:  *timeoutWarning,
 		TimeoutCritical: *timeoutCritical,
+		Verbose:         *verbose,
 	}
 
 	// Check
